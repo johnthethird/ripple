@@ -45,6 +45,7 @@ describe Riak::RObject do
         r.key.should == "bar"
       end
     end
+    
   end
 
   describe "serialization" do
@@ -142,7 +143,7 @@ describe Riak::RObject do
     before :each do
       @object = Riak::RObject.new(@bucket, "bar")
     end
-
+    
     it "should load the content type" do
       @object.load({:headers => {"content-type" => ["application/json"]}})
       @object.content_type.should == "application/json"
@@ -479,4 +480,19 @@ describe Riak::RObject do
     @object = Riak::RObject.new(@bucket, "bar")
     @object.to_link("next").should == Riak::Link.new("/riak/foo/bar", "next")
   end
+
+  describe "when lazy loading the object" do
+    before :each do
+      @http = mock("HTTPBackend")
+      @client.stub!(:http).and_return(@http)
+    end
+
+    it "should load metadata and not data" do
+      @http.should_receive(:head).with(200,"/riak/", "foo", "bar", {}, {}).and_return({:code => 200, :headers => {}})
+      @object = Riak::RObject.new(@bucket, "bar", {:lazy_load => true})
+      @object.data.should == nil
+    end
+  end
+
+  
 end

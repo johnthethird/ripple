@@ -53,9 +53,14 @@ module Riak
     # @param [Bucket] bucket the bucket in which the object exists
     # @param [String] key the key at which the object resides. If nil, a key will be assigned when the object is saved.
     # @see Bucket#get
-    def initialize(bucket, key=nil)
-      @bucket, @key = bucket, key
+    def initialize(bucket, key=nil, options={})
+      @bucket = bucket
+      @key = key.gsub(/\//,"%2f") if key
       @links, @meta = Set.new, {}
+      if options.delete(:lazy_load)
+        response = bucket.client.http.head(200, bucket.client.prefix, bucket.name, key, options, {})
+        load(response)
+      end
       yield self if block_given?
     end
 

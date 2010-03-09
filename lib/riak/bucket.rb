@@ -92,6 +92,7 @@ module Riak
     # @return [Riak::RObject] the object
     # @raise [FailedRequest] if the object is not found or some other error occurs
     def get(key, options={})
+      key.gsub!(/\//,"%2f") if key
       code = allow_mult ? [200,300] : 200
       response = @client.http.get(code, @client.prefix, name, key, options, {})
       RObject.new(self, key).load(response)
