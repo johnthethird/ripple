@@ -12,6 +12,7 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 require 'riak'
+require 'set'
 
 module Riak
   # Parent class of all object types supported by ripple. {Riak::RObject} represents
@@ -36,7 +37,7 @@ module Riak
     # @return [Object] the data stored in Riak at this object's key. Varies in format by content-type, defaulting to String from the response body.
     attr_accessor :data
 
-    # @return [Array<Link>] an array of {Riak::Link} objects for relationships between this object and other resources
+    # @return [Set<Link>] an Set of {Riak::Link} objects for relationships between this object and other resources
     attr_accessor :links
 
     # @return [String] the ETag header from the most recent HTTP response, useful for caching and reloading
@@ -54,7 +55,8 @@ module Riak
     # @see Bucket#get
     def initialize(bucket, key=nil)
       @bucket, @key = bucket, key
-      @links, @meta = [], {}
+      @links, @meta = Set.new, {}
+      yield self if block_given?
     end
 
     # Load object data from an HTTP response
@@ -63,7 +65,7 @@ module Riak
       extract_header(response, "location", :key) {|v| URI.unescape(v.split("/").last) }
       extract_header(response, "content-type", :content_type)
       extract_header(response, "x-riak-vclock", :vclock)
-      extract_header(response, "link", :links) {|v| Link.parse(v) }
+      extract_header(response, "link", :links) {|v| Set.new(Link.parse(v)) }
       extract_header(response, "etag", :etag)
       extract_header(response, "last-modified", :last_modified) {|v| Time.httpdate(v) }
       @meta = response[:headers].inject({}) do |h,(k,v)|
@@ -72,6 +74,8 @@ module Riak
         end
         h
       end
+      @conflict = response[:code].try(:to_i) == 300 && content_type =~ /multipart\/mixed/
+      @siblings = nil
       @data = deserialize(response[:body]) if response[:body].present?
       self
     end
@@ -126,8 +130,9 @@ module Riak
     def reload(options={})
       force = options.delete(:force)
       return self unless @key && (@vclock || force)
-      response = @bucket.client.http.get([200, 304], @bucket.client.prefix, @bucket.name, @key, options, reload_headers)
-      load(response) if response[:code] == 200
+      codes = @bucket.allow_mult ? [200,300,304] : [200,304]
+      response = @bucket.client.http.get(codes, @bucket.client.prefix, @bucket.name, @key, options, reload_headers)
+      load(response) unless response[:code] == 304
       self
     end
 
@@ -139,6 +144,24 @@ module Riak
       return if key.blank?
       @bucket.client.http.delete([204,404], @bucket.client.prefix, @bucket.name, key)
       freeze
+    end
+
+    # Returns sibling objects when in conflict.
+    # @return [Array<RObject>] an array of conflicting sibling objects for this key
+    # @return [self] this object when not in conflict
+    def siblings
+      return self unless conflict?
+      @siblings ||= Multipart.parse(data, Multipart.extract_boundary(content_type)).map do |part|
+        RObject.new(self.bucket, self.key) do |sibling|
+          sibling.load(part)
+          sibling.vclock = vclock
+        end
+      end
+    end
+
+    # @return [true,false] Whether this object has conflicting sibling objects (divergent vclocks)
+    def conflict?
+      @conflict.present?
     end
 
     # Serializes the internal object data for sending to Riak. Differs based on the content-type.
@@ -207,12 +230,12 @@ module Riak
         []
       end
     end
-    
+
     # Converts the object to a link suitable for linking other objects to it
     def to_link(tag=nil)
       Link.new(@bucket.client.http.path(@bucket.client.prefix, @bucket.name, @key).path, tag)
     end
-    
+
     private
     def extract_header(response, name, attribute=nil)
       if response[:headers][name].present?
