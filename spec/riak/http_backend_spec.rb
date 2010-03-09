@@ -48,6 +48,8 @@ describe Riak::Client::HTTPBackend do
   it "should escape appropriate characters in a relative resource path" do
     @backend.path("foo bar").to_s.should == "http://127.0.0.1:8098/foo%20bar"
     @backend.path("foo", "bar", {"param" => "a string"}).to_s.should == "http://127.0.0.1:8098/foo/bar?param=a+string"
+    @backend.path("/riak/bucket/key%2fwith%2fslashes").to_s.should == "http://127.0.0.1:8098/riak/bucket/key%2fwith%2fslashes"
+    @backend.path("/riak/bucket/key%2fwith%2fslashes%2f").to_s.should == "http://127.0.0.1:8098/riak/bucket/key%2fwith%2fslashes%2f"
   end
 
   it "should compute a URI from a relative resource path with a hash of query parameters" do
