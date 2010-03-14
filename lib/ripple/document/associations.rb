@@ -20,6 +20,7 @@ module Ripple
       extend ActiveSupport::Autoload
 
       autoload :Proxy
+      require 'ripple/document/associations/collection'
       require 'ripple/document/associations/belongs_to_proxy'
       require 'ripple/document/associations/many_documents_proxy'
       require 'ripple/document/associations/one_proxy'
