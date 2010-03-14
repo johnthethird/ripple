@@ -20,6 +20,9 @@ module Ripple
       extend ActiveSupport::Autoload
 
       autoload :Proxy
+      require 'ripple/document/associations/belongs_to_proxy'
+      require 'ripple/document/associations/many_documents_proxy'
+      require 'ripple/document/associations/one_proxy'
 
       module ClassMethods
         # @private
@@ -109,6 +112,20 @@ module Ripple
       def ivar
         "@_#{name}"
       end
+      
+      def proxy_class
+        return @proxy_class if defined?(@proxy_class)
+        
+        @proxy_class = 
+          if many?
+            Associations::ManyDocumentsProxy
+          elsif one?
+            Associations::OneProxy
+          else
+            Associations::BelongsToProxy
+          end
+      end
+      
     end
   end
 end
