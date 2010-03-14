@@ -35,6 +35,16 @@ module Riak
       @url, @rel = url, rel
     end
 
+    # @return [String] bucket_name, if the Link url is a known Riak link ("/riak/<bucket>/<key>")
+    def bucket
+      $1 if url =~ %r{/riak/([^/]+)/?}
+    end
+    
+    # @return [String] key, if the Link url is a known Riak link ("/riak/<bucket>/<key>")
+    def key
+      $1 if url =~ %r{/riak/[^/]+/([^/]+)/?}
+    end
+
     def inspect; to_s; end
 
     def to_s
@@ -46,8 +56,7 @@ module Riak
     end
 
     def to_walk_spec
-      bucket, object = $1, $2 if @url =~ %r{/raw/([^/]+)/([^/]+)/?}
-      raise t("bucket_link_conversion") if @rel == "up" || object.nil?
+      raise t("bucket_link_conversion") if @rel == "up" || key.nil?
       WalkSpec.new(:bucket => bucket, :tag => @rel)
     end
   end

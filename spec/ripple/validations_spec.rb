@@ -15,7 +15,7 @@ require File.expand_path("../../spec_helper", __FILE__)
 
 describe Ripple::Document::Validations do
   before :all do
-    class Box; include Ripple::Document; property :shape, String end
+    Object.module_eval { class Box; include Ripple::Document; property :shape, String end }
   end
 
   before :each do
@@ -50,14 +50,16 @@ describe Ripple::Document::Validations do
   end
 
   it "should run validations at the correct lifecycle state" do
-    pending "@_on_validate seems not to work?!"
-    Box.property :size, Integer
-    Box.validates_inclusion_of :size, :in => 1..30, :on => :update
+    Box.property :size, Integer, :inclusion => {:in => 1..30, :on => :update }
     @box.size = 0
     @box.should be_valid
     Box.properties.delete :size
   end
-
+  
+  after :each do
+    Box.reset_callbacks(:validate)
+  end
+  
   after :all do
     Object.send(:remove_const, :Box)
   end

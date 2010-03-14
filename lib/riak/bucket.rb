@@ -34,7 +34,7 @@ module Riak
     def initialize(client, name)
       raise ArgumentError, t("client_type", :client => client.inspect) unless Client === client
       raise ArgumentError, t("string_type", :string => name.inspect) unless String === name
-      @client, @name = client, name
+      @client, @name, @props = client, name, {}
     end
 
     # Load information for the bucket from a response given by the {Riak::Client::HTTPBackend}.
@@ -46,7 +46,7 @@ module Riak
       unless response.try(:[], :headers).try(:[],'content-type').try(:first) =~ /json$/
         raise Riak::InvalidResponse.new({"content-type" => ["application/json"]}, response[:headers], t("loading_bucket", :name => name))
       end
-      payload = JSON.parse(response[:body])
+      payload = ActiveSupport::JSON.decode(response[:body])
       @keys = payload['keys'].map {|k| URI.unescape(k) }  if payload['keys']
       @props = payload['props'] if payload['props']
       self
@@ -63,7 +63,7 @@ module Riak
     def keys(options={})
       if block_given?
         @client.http.get(200, @client.prefix, name, {:props => false}, {}) do |chunk|
-          obj = JSON.parse(chunk) rescue {}
+          obj = ActiveSupport::JSON.decode(chunk) rescue {}
           yield obj['keys'].map {|k| URI.unescape(k) } if obj['keys']
         end
       elsif @keys.nil? || options[:reload]
@@ -92,11 +92,61 @@ module Riak
     # @return [Riak::RObject] the object
     # @raise [FailedRequest] if the object is not found or some other error occurs
     def get(key, options={})
-      response = @client.http.get(200, @client.prefix, name, key, options, {})
+      code = allow_mult ? [200,300] : 200
+      response = @client.http.get(code, @client.prefix, name, key, options, {})
       RObject.new(self, key).load(response)
     end
     alias :[] :get
 
+    # Create a new blank object
+    # @param [String] key the key of the new object
+    # @return [RObject] the new, unsaved object
+    def new(key=nil)
+      RObject.new(self, key).tap do |obj|
+        obj.content_type = "application/json"
+      end
+    end
+
+    # Fetches an object if it exists, otherwise creates a new one with the given key
+    # @param [String] key the key to fetch or create
+    # @return [RObject] the new or existing object
+    def get_or_new(key, options={})
+      begin
+        get(key, options)
+      rescue Riak::FailedRequest => fr
+        if fr.code.to_i == 404
+          new(key)
+        else
+          raise fr
+        end
+      end
+    end
+
+    # @return [true, false] whether the bucket allows divergent siblings
+    def allow_mult
+      props['allow_mult']
+    end
+    
+    # Set the allow_mult property.  *NOTE* This will result in a PUT request to Riak.
+    # @param [true, false] value whether the bucket should allow siblings
+    def allow_mult=(value)
+      self.props = props.merge('allow_mult' => value)
+      value
+    end
+
+    # @return [Fixnum] the N value, or number of replicas for this bucket
+    def n_value
+      props['n_val']
+    end
+
+    # Set the N value (number of replicas). *NOTE* This will result in a PUT request to Riak.
+    # Setting this value after the bucket has objects stored in it may have unpredictable results.
+    # @param [Fixnum] value the number of replicas the bucket should keep of each object
+    def n_value=(value)
+      self.props = props.merge('n_val' => value)
+      value
+    end
+    
     # @return [String] a representation suitable for IRB and debugging output
     def inspect
       "#<Riak::Bucket #{client.http.path(client.prefix, name).to_s}#{" keys=[#{keys.join(',')}]" if defined?(@keys)}>"
