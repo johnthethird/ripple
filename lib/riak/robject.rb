@@ -36,6 +36,10 @@ module Riak
 
     # @return [Object] the data stored in Riak at this object's key. Varies in format by content-type, defaulting to String from the response body.
     attr_accessor :data
+    def data
+      reload(:force => true) if @data == "_LAZY_LOADED_"
+      @data
+    end
 
     # @return [Set<Link>] an Set of {Riak::Link} objects for relationships between this object and other resources
     attr_accessor :links
@@ -54,12 +58,14 @@ module Riak
     # @param [String] key the key at which the object resides. If nil, a key will be assigned when the object is saved.
     # @see Bucket#get
     def initialize(bucket, key=nil, options={})
-      @bucket = bucket
-      @key = key.gsub(/\//,"%2f") if key
+      @bucket, @key = bucket, key
       @links, @meta = Set.new, {}
-      if options.delete(:lazy_load)
-        response = bucket.client.http.head(200, bucket.client.prefix, bucket.name, key, options, {})
-        load(response)
+      if @key && options.delete(:lazy_load)
+        response = @bucket.client.http.head([200,404], @bucket.client.prefix, @bucket.name, @key, options, {})
+        if response[:code] == 200
+          load(response) 
+          @data = "_LAZY_LOADED_"
+        end
       end
       yield self if block_given?
     end
@@ -105,6 +111,7 @@ module Riak
     # HTTP header hash that will be sent along when reloading the object
     # @return [Hash] hash of HTTP headers
     def reload_headers
+      return {} if @data == "_LAZY_LOADED_"
       {}.tap do |h|
         h['If-None-Match'] = @etag if @etag.present?
         h['If-Modified-Since'] = @last_modified.httpdate if @last_modified.present?
