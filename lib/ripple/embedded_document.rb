@@ -25,9 +25,10 @@ module Ripple
       extend ActiveModel::Naming
       extend Ripple::Document::Properties
       include Persistence
-      include Ripple::Document::AttributeMethods
+      include Document::AttributeMethods
       include Ripple::Document::Timestamps
-      include Ripple::Document::Validations
+      include Document::Validations
+      include Document::Associations
     end
 
     module ClassMethods
