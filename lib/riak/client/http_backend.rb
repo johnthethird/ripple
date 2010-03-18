@@ -143,11 +143,9 @@ module Riak
       # @return [URI] an absolute URI for the resource
       def path(*segments)
         query = segments.extract_options!.to_param
-        uri = root_uri.merge(URI.escape(segments.join("/").gsub(/\/+/, "/").sub(/^\//, ''))).tap do |u|
-          u.query = query if query.present?
+        root_uri.merge(segments.join("/").gsub(/\/+/, "/").sub(/^\//, '')).tap do |uri|
+          uri.query = query if query.present?
         end
-        uri.path.gsub!(/%252f/,"%2f") #keys can have slashes, which must be escaped as %2f for Riak. Undo any double-escaping from URI.
-        uri
       end
 
       # Verifies that both a resource path and body are present in the arguments

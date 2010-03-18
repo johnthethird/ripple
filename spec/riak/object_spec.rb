@@ -30,7 +30,7 @@ describe Riak::RObject do
       @object.key.should == "bar"
     end
 
-    it "should initialize the links to an empty array" do
+    it "should initialize the links to an empty set" do
       @object = Riak::RObject.new(@bucket, "bar")
       @object.links.should == Set.new
     end
@@ -203,6 +203,11 @@ describe Riak::RObject do
       @object.load({:headers => {"content-type" => ["multipart/mixed; boundary=foo"]}, :code => 300 })
       @object.should be_conflict
     end
+
+    it "should unescape the key given in the location header" do
+      @object.load({:headers => {"content-type" => ["application/json"], "location" => ["/riak/foo/baz%20"]}})
+      @object.key.should == "baz "
+    end
   end
 
   describe "extracting siblings" do
@@ -248,7 +253,7 @@ describe Riak::RObject do
 
     describe "when links are defined" do
       before :each do
-        @object.links = [Riak::Link.new("/riak/foo/baz", "next")]
+        @object.links << Riak::Link.new("/riak/foo/baz", "next")
       end
 
       it "should include a Link header with references to other objects" do
@@ -261,10 +266,15 @@ describe Riak::RObject do
         @object.store_headers.should have_key("Link")
         @object.store_headers["Link"].should_not include('riaktag="up"')
       end
+
+      it "should not allow duplicate links" do
+        @object.links << Riak::Link.new("/riak/foo/baz", "next")
+        @object.links.length.should == 1
+      end
     end
 
     it "should exclude the Link header when no links are present" do
-      @object.links = []
+      @object.links = Set.new
       @object.store_headers.should_not have_key("Link")
     end
 
@@ -340,6 +350,12 @@ describe Riak::RObject do
         @http.should_receive(:post).with(201, "/riak/", "foo", {:dw => 2, :returnbody => true}, "This is some text.", @headers).and_return({:headers => {'location' => ["/riak/foo/somereallylongstring"], "x-riak-vclock" => ["areallylonghashvalue"]}, :code => 201})
         @object.store(:dw => 2)
       end
+
+      it "should escape the bucket name" do
+        @bucket.should_receive(:name).and_return("foo ")
+        @http.should_receive(:post).with(201, "/riak/", "foo%20", {:returnbody => true}, "This is some text.", @headers).and_return({:headers => {'location' => ["/riak/foo/somereallylongstring"], "x-riak-vclock" => ["areallylonghashvalue"]}, :code => 201})
+        @object.store
+      end
     end
 
     describe "when the object has a key" do
@@ -348,15 +364,22 @@ describe Riak::RObject do
       end
 
       it "should issue a PUT request to the bucket, and update the object properties (returning the body by default)" do
-        @http.should_receive(:put).with([200,204], "/riak/", "foo/bar", {:returnbody => true}, "This is some text.", @headers).and_return({:headers => {'location' => ["/riak/foo/somereallylongstring"], "x-riak-vclock" => ["areallylonghashvalue"]}, :code => 204})
+        @http.should_receive(:put).with([200,204,300], "/riak/", "foo/bar", {:returnbody => true}, "This is some text.", @headers).and_return({:headers => {'location' => ["/riak/foo/somereallylongstring"], "x-riak-vclock" => ["areallylonghashvalue"]}, :code => 204})
         @object.store
         @object.key.should == "somereallylongstring"
         @object.vclock.should == "areallylonghashvalue"
       end
 
       it "should include persistence-tuning parameters in the query string" do
-        @http.should_receive(:put).with([200,204], "/riak/", "foo/bar", {:dw => 2, :returnbody => true}, "This is some text.", @headers).and_return({:headers => {'location' => ["/riak/foo/somereallylongstring"], "x-riak-vclock" => ["areallylonghashvalue"]}, :code => 204})
+        @http.should_receive(:put).with([200,204,300], "/riak/", "foo/bar", {:dw => 2, :returnbody => true}, "This is some text.", @headers).and_return({:headers => {'location' => ["/riak/foo/somereallylongstring"], "x-riak-vclock" => ["areallylonghashvalue"]}, :code => 204})
         @object.store(:dw => 2)
+      end
+
+      it "should escape the bucket and key names" do
+        @http.should_receive(:put).with([200,204,300], "/riak/", "foo%20/bar%2Fbaz", {:returnbody => true}, "This is some text.", @headers).and_return({:headers => {'location' => ["/riak/foo/somereallylongstring"], "x-riak-vclock" => ["areallylonghashvalue"]}, :code => 204})
+        @bucket.instance_variable_set(:@name, "foo ")
+        @object.key = "bar/baz"
+        @object.store
       end
     end
   end
@@ -411,6 +434,13 @@ describe Riak::RObject do
       @http.should_receive(:get).with([200,300,304], "/riak/", "foo", "bar", {}, {}).and_return({:code => 304})
       @object.reload
     end
+
+    it "should escape the bucket and key names" do
+      @bucket.should_receive(:name).and_return("some/deep/path")
+      @object.key = "another/deep/path"
+      @http.should_receive(:get).with([200,304], "/riak/", "some%2Fdeep%2Fpath", "another%2Fdeep%2Fpath", {}, {}).and_return({:code => 304})
+      @object.reload
+    end
   end
 
   describe "walking from the object to linked objects" do
@@ -444,6 +474,13 @@ describe Riak::RObject do
       @client.should_receive(:bucket).with("foo", :keys => false).and_return(@bucket)
       @object.walk(nil,"next",true)
     end
+
+    it "should escape the bucket, key and link specs" do
+      @object.key = "bar/baz"
+      @bucket.should_receive(:name).and_return("quin/quux")
+      @http.should_receive(:get).with(200, "/riak/", "quin%2Fquux", "bar%2Fbaz", "_,next%2F2,1").and_return(:headers => {"content-type" => ["multipart/mixed; boundary=12345"]}, :body => "\n--12345\nContent-Type: multipart/mixed; boundary=09876\n\n--09876--\n\n--12345--\n")
+      @object.walk(:tag => "next/2", :keep => true)
+    end
   end
 
   describe "when deleting" do
@@ -469,6 +506,13 @@ describe Riak::RObject do
       @http.should_receive(:delete).and_raise(Riak::FailedRequest.new(:delete, [204,404], 500, {}, ""))
       lambda { @object.delete }.should raise_error(Riak::FailedRequest)
     end
+
+    it "should escape the bucket and key names" do
+      @object.key = "deep/path"
+      @bucket.should_receive(:name).and_return("bucket spaces")
+      @http.should_receive(:delete).with([204,404], "/riak/", "bucket%20spaces", "deep%2Fpath").and_return({:code => 204, :headers => {}})
+      @object.delete
+    end
   end
 
   it "should convert to a link having the same url and an empty tag" do
@@ -481,18 +525,9 @@ describe Riak::RObject do
     @object.to_link("next").should == Riak::Link.new("/riak/foo/bar", "next")
   end
 
-  describe "when lazy loading the object" do
-    before :each do
-      @http = mock("HTTPBackend")
-      @client.stub!(:http).and_return(@http)
-    end
-
-    it "should load metadata and not data" do
-      @http.should_receive(:head).with(200,"/riak/", "foo", "bar", {}, {}).and_return({:code => 200, :headers => {}})
-      @object = Riak::RObject.new(@bucket, "bar", {:lazy_load => true})
-      @object.data.should == nil
-    end
+  it "should escape the bucket and key when converting to a link" do
+    @object = Riak::RObject.new(@bucket, "deep/path")
+    @bucket.should_receive(:name).and_return("bucket spaces")
+    @object.to_link("bar").url.should == "/riak/bucket%20spaces/deep%2Fpath"
   end
-
-  
 end
