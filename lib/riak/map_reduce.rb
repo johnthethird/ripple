@@ -17,6 +17,7 @@ module Riak
   # Class for invoking map-reduce jobs using the HTTP interface.
   class MapReduce
     include Util::Translation
+    include Util::Escape
     # @return [Array<[bucket,key]>,String] The bucket/keys for input to the job, or the bucket (all keys).
     # @see #add
     attr_accessor :inputs
@@ -58,16 +59,17 @@ module Riak
         p = params.first
         case p
         when Bucket
-          @inputs = p.name
+          @inputs = escape(p.name)
         when RObject
-          @inputs << [p.bucket.name, p.key]
+          @inputs << [escape(p.bucket.name), escape(p.key)]
         when String
-          @inputs = p
+          @inputs = escape(p)
         end
       when 2..3
         bucket = params.shift
-        bucket = bucket.name if Bucket === bucket
-        @inputs << params.unshift(bucket)
+        bucket = Bucket === bucket ? escape(bucket.name) : escape(bucket)
+        key = escape(params.shift)
+        @inputs << params.unshift(key).unshift(bucket)
       end
       self
     end

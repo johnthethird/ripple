@@ -49,6 +49,11 @@ describe Riak::MapReduce do
       @mr.inputs.should == [["foo","bar"]]
     end
 
+    it "should add bucket/key pairs with slashes to the inputs" do
+      @mr.add("foo/bar","baz/jaz")
+      @mr.inputs.should == [["foo%2Fbar","baz%2Fjaz"]]
+    end
+
     it "should add an array containing a bucket/key pair to the inputs" do
       @mr.add(["foo","bar"])
       @mr.inputs.should == [["foo","bar"]]
